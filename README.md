@@ -1,3 +1,13 @@
+# AnonGHOST implementation for "Towards Privacy-preserving Photorealistic Self-avatars in Mixed Reality"
+
+This is a fork of the official GHOST codebase, where we adapted the architecture to be privacy-preserving by implementing the *AvatarLDP* and *AvatarRotation* privacy algorithms.  See below for the original codebase's README and LICENSE.
+
+### Citation
+
+```
+TODO: Wilson et al 2025
+```
+
 [[Paper](https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber=9851423)] [[Habr](https://habr.com/ru/company/sberbank/blog/645919/)]
 
 # 👻 GHOST: Generative High-fidelity One Shot Transfer 
