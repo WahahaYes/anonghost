@@ -26,7 +26,7 @@ def add_audio_from_another_video(
 ) -> None:
     if not os.path.exists("./examples/audio/"):
         os.makedirs("./examples/audio/")
-    fast_cmd = "-c:v libx264 -preset ultrafast -crf 18" if fast_cpu else ""
+    fast_cmd = "-c:v libx264 -crf 18" if fast_cpu else ""
     gpu_cmd = "-c:v h264_nvenc" if gpu else ""
     os.system(
         f"ffmpeg -v -8 -i {video_with_sound} -vn -vcodec h264_nvenc ./examples/audio/{audio_name}.m4a"
@@ -169,7 +169,10 @@ def crop_frames_and_get_transforms(
             for q in range(len(target_embeds)):
                 kps_array[0].append([])
 
-    smooth_kps = smooth_landmarks(kps_array, n=2)
+    try:
+        smooth_kps = smooth_landmarks(kps_array, n=2)
+    except:
+        print("Couldn't smooth landmarks")
 
     for i, frame in tqdm(enumerate(full_frames)):
         for q in range(len(target_embeds)):
@@ -229,6 +232,7 @@ def get_final_video(
         fps,
         (full_frames[0].shape[1], full_frames[0].shape[0]),
     )
+
     size = (full_frames[0].shape[0], full_frames[0].shape[1])
     params = [None for i in range(len(crop_frames))]
     result_frames = full_frames.copy()
@@ -304,6 +308,92 @@ def get_final_video(
         out.write(result_frames[i])
 
     out.release()
+
+
+def get_final_images(
+    final_frames: List[np.ndarray],
+    crop_frames: List[np.ndarray],
+    full_frames: List[np.ndarray],
+    tfm_array: List[np.ndarray],
+    handler,
+) -> None:
+    """
+    Create final video from frames
+    """
+
+    size = (full_frames[0].shape[0], full_frames[0].shape[1])
+    params = [None for i in range(len(crop_frames))]
+    result_frames = full_frames.copy()
+
+    for i in tqdm(range(len(full_frames))):
+        if i == len(full_frames):
+            break
+        for j in range(len(crop_frames)):
+            try:
+                swap = cv2.resize(final_frames[j][i], (224, 224))
+
+                if len(crop_frames[j][i]) == 0:
+                    params[j] = None
+                    continue
+
+                landmarks = handler.get_without_detection_without_transform(swap)
+                if params[j] == None:
+                    landmarks_tgt = handler.get_without_detection_without_transform(
+                        crop_frames[j][i]
+                    )
+                    mask, params[j] = face_mask_static(
+                        swap, landmarks, landmarks_tgt, params[j]
+                    )
+                else:
+                    mask = face_mask_static(swap, landmarks, landmarks_tgt, params[j])
+
+                swap = (
+                    torch.from_numpy(swap)
+                    .cuda()
+                    .permute(2, 0, 1)
+                    .unsqueeze(0)
+                    .type(torch.float32)
+                )
+                mask = (
+                    torch.from_numpy(mask)
+                    .cuda()
+                    .unsqueeze(0)
+                    .unsqueeze(0)
+                    .type(torch.float32)
+                )
+                full_frame = (
+                    torch.from_numpy(result_frames[i])
+                    .cuda()
+                    .permute(2, 0, 1)
+                    .unsqueeze(0)
+                )
+                mat = (
+                    torch.from_numpy(tfm_array[j][i])
+                    .cuda()
+                    .unsqueeze(0)
+                    .type(torch.float32)
+                )
+
+                mat_rev = kornia.invert_affine_transform(mat)
+                swap_t = kornia.warp_affine(swap, mat_rev, size)
+                mask_t = kornia.warp_affine(mask, mat_rev, size)
+                final = (
+                    (mask_t * swap_t + (1 - mask_t) * full_frame)
+                    .type(torch.uint8)
+                    .squeeze()
+                    .permute(1, 2, 0)
+                    .cpu()
+                    .detach()
+                    .numpy()
+                )
+
+                result_frames[i] = final
+                torch.cuda.empty_cache()
+
+            except Exception:
+                pass
+
+    return result_frames
 
 
 class Frames(Dataset):

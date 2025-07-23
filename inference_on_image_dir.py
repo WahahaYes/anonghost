@@ -1,4 +1,5 @@
 import argparse
+import glob
 import os
 import random
 import time
@@ -14,13 +15,11 @@ from models.config_sr import TestOptions
 from models.pix2pix_model import Pix2PixModel
 from network.AEI_Net import AEI_Net
 from utils.inference.core import model_inference
-from utils.inference.image_processing import crop_face, get_final_image
+from utils.inference.image_processing import crop_face
 from utils.inference.video_processing import (
-    add_audio_from_another_video,
     face_enhancement,
-    get_final_video,
+    get_final_images,
     get_target,
-    read_video,
 )
 
 
@@ -101,11 +100,9 @@ def main(args):
         exit()
 
     # get full frames from video
-    if not args.image_to_image:
-        full_frames, fps = read_video(args.target_video)
-    else:
-        target_full = cv2.imread(args.target_image)
-        full_frames = [target_full]
+    full_frames = []
+    for frame in glob.glob(f"{args.target_dir}/*.png"):
+        full_frames.append(cv2.imread(frame))
 
     # get target faces that are used for swap
     set_target = True
@@ -128,40 +125,36 @@ def main(args):
             exit()
 
     start = time.time()
-    final_frames_list, crop_frames_list, full_frames, tfm_array_list = model_inference(
-        full_frames,
-        source,
-        target,
-        netArc,
-        G,
-        app,
-        set_target,
-        similarity_th=args.similarity_th,
-        crop_size=args.crop_size,
-        BS=args.batch_size,
-    )
-    if args.use_sr:
-        final_frames_list = face_enhancement(final_frames_list, model)
 
-    if not args.image_to_image:
-        get_final_video(
+    for s, t in zip(source, target):
+        final_frames_list, crop_frames_list, full_frames, tfm_array_list = (
+            model_inference(
+                full_frames,
+                [s],
+                [t],
+                netArc,
+                G,
+                app,
+                set_target,
+                similarity_th=args.similarity_th,
+                crop_size=args.crop_size,
+                BS=args.batch_size,
+            )
+        )
+        if args.use_sr:
+            final_frames_list = face_enhancement(final_frames_list, model)
+
+        full_frames = get_final_images(
             final_frames_list,
             crop_frames_list,
             full_frames,
             tfm_array_list,
-            args.out_video_name,
-            fps,
             handler,
         )
 
-        add_audio_from_another_video(args.target_video, args.out_video_name, "audio")
-        print(f"Video saved with path {args.out_video_name}")
-    else:
-        result = get_final_image(
-            final_frames_list, crop_frames_list, full_frames[0], tfm_array_list, handler
-        )
-        cv2.imwrite(args.out_image_name, result)
-        print(f"Swapped Image saved with path {args.out_image_name}")
+    # replace the images
+    for i, frame in enumerate(glob.glob(f"{args.target_dir}/*.png")):
+        cv2.imwrite(frame, full_frames[i])
 
     print("Total time: ", time.time() - start)
 
@@ -223,36 +216,9 @@ if __name__ == "__main__":
 
     # parameters for image to video
     parser.add_argument(
-        "--target_video",
-        default="examples/videos/nggyup.mp4",
+        "--target_dir",
         type=str,
         help="It's necessary for image to video swap",
-    )
-    parser.add_argument(
-        "--out_video_name",
-        default="examples/results/result.mp4",
-        type=str,
-        help="It's necessary for image to video swap",
-    )
-
-    # parameters for image to image
-    parser.add_argument(
-        "--image_to_image",
-        default=False,
-        type=bool,
-        help="True for image to image swap, False for swap on video",
-    )
-    parser.add_argument(
-        "--target_image",
-        default="examples/images/beckham.jpg",
-        type=str,
-        help="It's necessary for image to image swap",
-    )
-    parser.add_argument(
-        "--out_image_name",
-        default="examples/results/result.png",
-        type=str,
-        help="It's necessary for image to image swap",
     )
 
     args = parser.parse_args()
